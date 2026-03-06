@@ -8,3 +8,4 @@ scipy
 tqdm
 faiss-cpu
 python-dotenv
+requests
