@@ -2,7 +2,7 @@
 Query service orchestrating the semantic search pipeline.
 
 Handles: embedding generation → PCA transform → cluster prediction
-→ cache lookup → result computation → cache storage.
+→ cache lookup → Qdrant vector search → cache storage.
 """
 
 import json
@@ -12,15 +12,16 @@ from joblib import load as joblib_load
 
 from app.embeddings.embedder import Embedder
 from app.cache.semantic_cache import SemanticCache
+from app.vector_db import VectorDB
 
 
 class QueryService:
     """
     Orchestrates the end-to-end query pipeline including
-    embedding, clustering, caching, and result retrieval.
+    embedding, clustering, caching, and Qdrant vector retrieval.
     """
 
-    def __init__(self):
+    def __init__(self, vector_db: VectorDB):
         # Load models
         print("[QueryService] Loading PCA model...")
         self.pca = joblib_load("models/pca_model.joblib")
@@ -28,17 +29,8 @@ class QueryService:
         print("[QueryService] Loading GMM model...")
         self.gmm = joblib_load("models/gmm_model.joblib")
 
-        # Load document data for result generation
-        print("[QueryService] Loading document index...")
-        with open("models/doc_index.json", "r", encoding="utf-8") as f:
-            self.doc_index = json.load(f)
-
-        print("[QueryService] Loading embeddings...")
-        self.doc_embeddings = np.load("models/embeddings.npy")
-
-        print("[QueryService] Loading processed corpus...")
-        with open("data/processed_corpus.json", "r", encoding="utf-8") as f:
-            self.corpus = json.load(f)
+        # Vector database
+        self.vector_db = vector_db
 
         # Initialize components
         self.embedder = Embedder()
@@ -61,7 +53,7 @@ class QueryService:
             2. PCA transform to clustering space
             3. Predict cluster probabilities
             4. Cache lookup (top-3 clusters)
-            5. If miss: compute result, store in cache
+            5. If miss: Qdrant vector search, store in cache
             6. Return response
 
         Args:
@@ -92,8 +84,8 @@ class QueryService:
                 **hit,
             }
 
-        # Step 5: Cache miss — compute result
-        print("[QueryService] Cache MISS — computing result...")
+        # Step 5: Cache miss — Qdrant vector search
+        print("[QueryService] Cache MISS — querying Qdrant...")
         result = self._compute_result(query_embedding)
 
         # Step 6: Store in cache
@@ -115,9 +107,7 @@ class QueryService:
 
     def _compute_result(self, query_embedding: np.ndarray, top_k: int = 5) -> str:
         """
-        Compute a search result by finding the top-k most similar documents.
-
-        Uses dot product on normalized vectors for cosine similarity.
+        Retrieve top-k documents from Qdrant vector search.
 
         Args:
             query_embedding: Normalized query embedding.
@@ -126,20 +116,7 @@ class QueryService:
         Returns:
             JSON-formatted string of top-k document matches.
         """
-        similarities = self.doc_embeddings @ query_embedding
-        top_indices = np.argsort(similarities)[-top_k:][::-1]
-
-        results = []
-        for idx in top_indices:
-            doc_meta = self.doc_index[idx]
-            doc_text = self.corpus[idx]["text"][:300]
-            results.append({
-                "doc_id": doc_meta["doc_id"],
-                "newsgroup": doc_meta["newsgroup"],
-                "score": round(float(similarities[idx]), 4),
-                "snippet": doc_text
-            })
-
+        results = self.vector_db.search(query_embedding, limit=top_k)
         return json.dumps(results)
 
     def get_cache_stats(self) -> Dict[str, Any]:

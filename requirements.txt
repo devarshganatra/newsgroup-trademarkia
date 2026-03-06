@@ -9,3 +9,4 @@ tqdm
 faiss-cpu
 python-dotenv
 requests
+qdrant-client
