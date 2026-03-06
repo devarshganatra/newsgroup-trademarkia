@@ -30,6 +30,12 @@ class QueryResponse(BaseModel):
     dominant_cluster: int
 
 
+@router.get("/health")
+async def health_check():
+    """Service health check endpoint."""
+    return {"status": "ok"}
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest, raw_request: Request):
     """
@@ -44,12 +50,17 @@ async def query_documents(request: QueryRequest, raw_request: Request):
 
 
 @router.get("/cache/stats")
-async def get_cache_stats(request: Request):
-    """
-    Return cache performance metrics including hit rate.
-    """
-    query_service = request.app.state.query_service
+async def get_stats(request: Request):
+    """Fetch current cache performance metrics."""
+    query_service: QueryService = request.app.state.query_service
     return query_service.get_cache_stats()
+
+
+@router.get("/dashboard/metrics")
+async def get_dashboard_metrics(request: Request):
+    """Fetch detailed metrics for the observability dashboard."""
+    query_service: QueryService = request.app.state.query_service
+    return query_service.get_dashboard_metrics()
 
 
 @router.delete("/cache")

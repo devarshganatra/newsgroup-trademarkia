@@ -10,3 +10,7 @@ faiss-cpu
 python-dotenv
 requests
 qdrant-client
+streamlit
+matplotlib
+seaborn
+streamlit

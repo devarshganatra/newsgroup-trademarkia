@@ -108,10 +108,11 @@ class SemanticCache:
                     best_sim = sim
                     best_entry = entry
 
-        if best_entry is not None:
+        if best_entry:
+            self.hits += 1
+            self.cluster_usage[best_entry.primary_cluster] += 1
             # LRU: refresh timestamp on access
             best_entry.timestamp = time.time()
-            self.hit_count += 1
             return {
                 "cache_hit": True,
                 "matched_query": best_entry.query,
@@ -120,7 +121,7 @@ class SemanticCache:
                 "dominant_cluster": best_entry.primary_cluster,
             }
 
-        self.miss_count += 1
+        self.misses += 1
         return None
 
     def store(
@@ -165,19 +166,21 @@ class SemanticCache:
         """Flush all cache entries and reset statistics."""
         for cluster_id in self.buckets:
             self.buckets[cluster_id] = []
-        self.hit_count = 0
-        self.miss_count = 0
+        self.hits = 0
+        self.misses = 0
+        self.cluster_usage = {i: 0 for i in range(self.n_clusters)}  # Track query distribution
 
     def stats(self) -> Dict[str, Any]:
         """Return cache performance statistics."""
         total = sum(len(b) for b in self.buckets.values())
-        total_lookups = self.hit_count + self.miss_count
+        total_lookups = self.hits + self.misses
         hit_rate = (
-            self.hit_count / total_lookups if total_lookups > 0 else 0.0
+            self.hits / total_lookups if total_lookups > 0 else 0.0
         )
         return {
             "total_entries": total,
-            "hit_count": self.hit_count,
-            "miss_count": self.miss_count,
+            "hit_count": self.hits,
+            "miss_count": self.misses,
             "hit_rate": round(hit_rate, 4),
+            "cluster_distribution": self.cluster_usage
         }

@@ -7,7 +7,8 @@ Handles: embedding generation → PCA transform → cluster prediction
 
 import json
 import numpy as np
-from typing import Dict, Any
+import time
+from typing import Dict, Any, List
 from joblib import load as joblib_load
 
 from app.embeddings.embedder import Embedder
@@ -42,6 +43,10 @@ class QueryService:
             max_entries_per_cluster=100
         )
 
+        # Metrics tracking
+        self.total_queries = 0
+        self.latencies = []  # Last 100 query latencies
+
         print(f"[QueryService] Ready. Clusters: {n_clusters}")
 
     def handle_query(self, query: str) -> Dict[str, Any]:
@@ -63,6 +68,7 @@ class QueryService:
             Response dict with results and cache metadata.
         """
         # Step 1: Embed query
+        start_time = time.time()
         query_embedding = self.embedder.encode(query)
         print(f"[QueryService] Query embedded: {query[:60]}...")
 
@@ -78,6 +84,8 @@ class QueryService:
         hit = self.cache.lookup(query_embedding, cluster_probs)
 
         if hit is not None:
+            latency = (time.time() - start_time) * 1000
+            self._record_metric(latency)
             print(f"[QueryService] Cache HIT (sim={hit['similarity_score']})")
             return {
                 "query": query,
@@ -96,6 +104,9 @@ class QueryService:
             result=result
         )
 
+        latency = (time.time() - start_time) * 1000
+        self._record_metric(latency)
+
         return {
             "query": query,
             "cache_hit": False,
@@ -104,6 +115,13 @@ class QueryService:
             "result": result,
             "dominant_cluster": primary_cluster,
         }
+
+    def _record_metric(self, latency_ms: float):
+        """Update internal metrics counters."""
+        self.total_queries += 1
+        self.latencies.append(latency_ms)
+        if len(self.latencies) > 100:
+            self.latencies.pop(0)
 
     def _compute_result(self, query_embedding: np.ndarray, top_k: int = 5) -> str:
         """
@@ -122,6 +140,20 @@ class QueryService:
     def get_cache_stats(self) -> Dict[str, Any]:
         """Return cache performance statistics."""
         return self.cache.stats()
+
+    def get_dashboard_metrics(self) -> Dict[str, Any]:
+        """Return comprehensive metrics for the dashboard."""
+        stats = self.cache.stats()
+        avg_latency = np.mean(self.latencies) if self.latencies else 0.0
+        
+        return {
+            "total_queries": self.total_queries,
+            "cache_hits": stats["hit_count"],
+            "cache_misses": stats["miss_count"],
+            "hit_rate": stats["hit_rate"],
+            "average_latency_ms": round(float(avg_latency), 2),
+            "cluster_distribution": stats["cluster_distribution"]
+        }
 
     def clear_cache(self) -> Dict[str, str]:
         """Flush the cache and return confirmation."""
